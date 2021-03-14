@@ -1,4 +1,4 @@
-# vue-table
+# some-vue-table
 
 ## Project setup
 ```
