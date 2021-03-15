@@ -1,7 +1,12 @@
 <template>
   <b-container fluid class="w-75">
     <!-- Формочка для создания коммента -->
-    <b-form inline @submit="onSubmit" @reset="onReset" class="mt-3">
+    <b-form
+      inline
+      @submit.prevent="onSubmit"
+      @reset.prevent="onReset"
+      class="mt-3"
+    >
       <b-input-group prepend="Post Id" class="mb-2 mr-sm-2 mb-sm-0">
         <b-form-input v-model="form.postId" placeholder="1"></b-form-input>
       </b-input-group>
@@ -26,7 +31,7 @@
 
     <hr />
     <!-- Лоадер -->
-    <div v-if="!comments" class="text-center mt-3">
+    <div v-if="!comments.length" class="text-center mt-3">
       <b-spinner label="Loading..."></b-spinner>
     </div>
 
@@ -37,6 +42,7 @@
       </b-input-group>
       <!-- Подсказка -->
       <p>Всего совпадений: {{ filteredComments.length }}</p>
+      <hr />
       <!-- Таблица -->
       <b-table
         :bordered="true"
@@ -101,12 +107,19 @@
 </template>
 
 <script>
+import {
+  getAllComments,
+  updateCommentById,
+  deleteCommentById,
+  addComment,
+} from "../api";
+// разнести на компоненты
 export default {
   name: "Table",
 
   data: function () {
     return {
-      comments: null,
+      comments: [],
       filter: "",
       page: 1,
       form: {
@@ -131,20 +144,10 @@ export default {
 
     this.comments =
       JSON.parse(localStorage.getItem("table-comments")) ||
-      (await this.fetchComments());
+      (await getAllComments());
   },
 
   methods: {
-    async fetchComments() {
-      // вынести все запросы в отдельный файл
-      const response = await fetch(
-        "https://jsonplaceholder.typicode.com/comments"
-      );
-      const json = await response.json();
-      localStorage.setItem("table-comments", JSON.stringify(json)); //вынести в Watch comments
-      return json;
-    },
-
     changeCell(event, data) {
       const current = this.comments.findIndex(
         (comment) => comment.id === data.item.id
@@ -157,59 +160,39 @@ export default {
       this.comments[current][key] = event.target.innerText.trim();
     },
 
-    updateComment(id) {
+    async updateComment(id) {
       const current = this.comments.findIndex((comment) => comment.id === id);
 
-      localStorage.setItem("table-comments", JSON.stringify(this.comments)); //вынести в Watch comments
+      await updateCommentById(id, this.comments[current]);
 
-      fetch(`https://jsonplaceholder.typicode.com/comments/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(this.comments[current]),
-        headers: {
-          "Content-type": "application/json; charset=UTF-8",
-        },
-      })
-        .then((response) => response.json())
-        .then((json) => console.log(json));
+      this.comments = [
+        ...this.comments.slice(0, current),
+        this.comments[current],
+        ...this.comments.slice(current + 1),
+      ];
     },
 
-    deleteComment(id) {
+    async deleteComment(id) {
       const current = this.comments.findIndex((comment) => comment.id === id);
+
+      await deleteCommentById(id);
+
       this.comments.splice(current, 1);
-
-      localStorage.setItem("table-comments", JSON.stringify(this.comments)); //вынести в Watch comments
-
-      fetch(`https://jsonplaceholder.typicode.com/comments/${id}`, {
-        method: "DELETE",
-      })
-        .then((response) => response.json())
-        .then((json) => console.log(json));
     },
 
-    onSubmit(event) {
-      event.preventDefault();
-      const randomId = Math.random(); // Убрать
-      const newItem = { ...this.form, id: randomId }; // Убрать
+    async onSubmit() {
+      const newComment = await addComment(this.form);
 
-      this.comments.push(newItem); // Пушить результат фетча снизу, там будет id
+      if (newComment.id === this.comments[this.comments.length - 1].id) {
+        newComment.id = this.comments[this.comments.length - 1].id + 1;
+      }
 
-      localStorage.setItem("table-comments", JSON.stringify(this.comments)); //вынести в Watch comments
+      await this.comments.push(newComment);
 
-      fetch("https://jsonplaceholder.typicode.com/comments/", {
-        method: "POST",
-        body: JSON.stringify(newItem),
-        headers: {
-          "Content-type": "application/json; charset=UTF-8",
-        },
-      })
-        .then((response) => response.json())
-        .then((json) => console.log(json));
-        // ресетить поля формы
+      this.onReset();
     },
 
-    onReset(event) {
-      event.preventDefault();
-
+    onReset() {
       this.form.email = "";
       this.form.name = "";
       this.form.body = "";
@@ -219,9 +202,12 @@ export default {
 
   computed: {
     filteredComments() {
-      // Обдумать, ошибка с фильтром
+      // Обдумать, ошибка с фильтром - ???
       return this.comments.filter((comment) => {
         let some = JSON.stringify(comment).includes(this.filter);
+
+        //let some2 = Object.values(comment).join('').includes(this.filter)
+        //return some2
         return JSON.parse(some);
       });
     },
@@ -252,8 +238,19 @@ export default {
 
   watch: {
     filter(newValue, prevValue) {
+      // почему сбрасывает при первом заходе на page 1
       if (prevValue) {
         this.page = 1;
+      }
+    },
+
+    comments() {
+      localStorage.setItem("table-comments", JSON.stringify(this.comments));
+    },
+
+    paginatedComments() {
+      if (this.paginatedComments.length === 0 && this.page > 1) {
+        this.page -= 1;
       }
     },
 
